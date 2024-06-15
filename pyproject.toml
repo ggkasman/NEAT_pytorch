@@ -7,6 +7,8 @@ name = "neat_pytorch"
 version = "0.0.1"
 description = "NEAT Python"
 authors = [
+  { name = "Zeynep Odabas" }
+  { name = "Pankhil Gawade" }
   { name = "Gamze Gizem Kasman" },
 ]
 license = { file = "LICENSE" }
