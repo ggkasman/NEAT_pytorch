@@ -3,9 +3,16 @@ import logging
 import os
 import sys
 from itertools import product
-import dask.bag as db
+try:
+    import dask.bag as db
+except ImportError:
+    print("dask.bag module not found. Please run 'pip install dask' to install it.")
+    raise
 
-import mlflow
+try:
+    import mlflow
+except ImportError:
+    pass
 
 '''Replace TensorFlow and Keras Imports with PyTorch'''
 import torch
@@ -14,12 +21,6 @@ import torch.optim as optim
 from fire import Fire
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
-
-#import tensorflow as tf
-#import tensorflow_probability as tfp
-#from keras.layers import Dense
-#from keras.optimizers import Adam
-#from tensorflow_probability import distributions as tfd
 
 from data_loading import load_data
 from utils import (
@@ -53,8 +54,6 @@ def run_single(
 ) -> None:
     setup_logger(log_file, log_level)
 
-    #logging.info(f"TFP Version {tfp.__version__}")
-    #logging.info(f"TF  Version {tf.__version__}")
     logging.info(f"PyTorch Version {torch.__version__}")
     
     setup_folders(data_path)
@@ -99,8 +98,6 @@ def fit_func(params, data_path, experiment_id, args, fast):
     data = load_data(data_path)
     train_data = TensorDataset(data["x_train"], data["y_train"])
     val_data = TensorDataset(data["x_test"], data["y_test"])
-    #train_data = (data["x_train"], data["y_train"])
-    #val_data = (data["x_test"], data["y_test"])
 
     train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=32, shuffle=False)
@@ -142,8 +139,6 @@ def fit_func(params, data_path, experiment_id, args, fast):
         epochs=20 if fast else 10_000,
         train_loader=train_loader,
         val_loader=val_loader,
-        #train_data=train_data,
-        #val_data=val_data,
         model=neat_model,
         criterion=criterion,
         optimizer=optimizer,
@@ -151,9 +146,6 @@ def fit_func(params, data_path, experiment_id, args, fast):
 
     mlflow.log_metric("val_logLik", evaluate(neat_model, val_loader))
     mlflow.log_metric("train_logLik", evaluate(neat_model, train_loader))
-    #mlflow.log_metric("val_logLik", neat_model.evaluate(x=train_data, y=train_data[1]))
-    #mlflow.log_metric("train_logLik", neat_model.evaluate(x=val_data, y=val_data[1]))
-
     mlflow.end_run()
 
 
@@ -195,8 +187,6 @@ def get_hp_space() -> list[dict]:
                 },
                 "optimizer": optim.Adam(lr=lr),
                 "base_distribution": torch.distributions.Normal(0,1),
-                #"optimizer": Adam(learning_rate=lr),
-                #"base_distribution": tfd.Normal(loc=0, scale=1),
                 "model_type": m,
             }
         )
@@ -221,10 +211,6 @@ def get_model_kwargs(model_type: ModelType):
             mu_top_layer=nn.Linear(1, 1),
             sd_top_layer=layer_inverse_exp(1),
             top_layer=layer_nonneg_lin(1)
-
-            #mu_top_layer=Dense(units=1),
-            #sd_top_layer=layer_inverse_exp(units=1),
-            #top_layer=layer_nonneg_lin(units=1),
         ),
         ModelType.INTER: dict(
             top_layer=layer_nonneg_lin(1),
@@ -236,8 +222,6 @@ def get_model_kwargs(model_type: ModelType):
 def set_seeds(seed: int) -> None:
     # Ensure Reproducibility
     logging.info(f"setting random seed to {seed}")
-    #np.random.seed(seed)
-    #tf.random.set_seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
