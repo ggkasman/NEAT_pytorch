@@ -5,12 +5,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
-from torch.nn.functional import relu
-
-#from keras.callbacks import EarlyStopping
-#from keras.layers import Dense
-#from keras.optimizers import Adam
-#from tensorflow_probability import distributions as tfd
 
 from utils import (
     get_neat_model,
@@ -18,7 +12,7 @@ from utils import (
     ModelType,
     layer_inverse_exp,
     layer_nonneg_lin,
-    relu_network,
+    relu_network
 )
 
 '''Custom Early Stopping class'''
@@ -55,41 +49,35 @@ def run_toy_example():
 
 def run_tp(X, y):
     mod = get_neat_model(
-        dim_features=X.shape[1],
-        net_x_arch_trunk=relu_network((100, 100), dropout=0),
+        dim_features=5,
+        net_x_arch_trunk=relu_network((5, 100), dropout=0),
         net_y_size_trunk=nonneg_tanh_network([50, 50, 10], dropout=0),
         base_distribution=torch.distributions.Normal(0, 1),
-        #base_distribution=tfd.Normal(loc=0, scale=1),
         optimizer=optim.Adam,
-        #optimizer=Adam(),
-        # kwds:
         model_type=ModelType.TP,
         output_dim=1,
     )
-
     print(mod)
 
     early_stopping = EarlyStopping(patience=50, monitor="val_loss", restore_best_weights=True)
-
-    #callback = EarlyStopping(
-    #    patience=50, monitor="val_logLik", restore_best_weights=True
-    #)
 
     dataset = TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
     train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(mod.parameters())
 
+#Training loop
     for epoch in range(500):
         mod.train()
         for X_batch, y_batch in train_loader:
             optimizer.zero_grad()
-            outputs = mod(X_batch)
+            outputs = mod(X_batch, y_batch)
             loss = criterion(outputs, y_batch)
             loss.backward()
             optimizer.step()
@@ -98,9 +86,8 @@ def run_tp(X, y):
         val_loss = 0.0
         with torch.no_grad():
             for X_val, y_val in val_loader:
-                outputs = mod(X_val)
-                loss = criterion(outputs, y_val)
-                val_loss += loss.item()
+                outputs = mod(X_val, y_val)
+                val_loss += criterion(outputs, y_val).item()
         val_loss /= len(val_loader)
 
         early_stopping(mod, val_loss)
@@ -108,8 +95,11 @@ def run_tp(X, y):
             print(f"Early stopping at epoch {epoch}")
             break
 
-    pred = mod(torch.tensor(X, dtype=torch.float32)).detach().numpy()
-    logLik = -val_loss
+#Predictions and plotting
+    mod.eval()
+    with torch.no_grad():
+        pred = mod(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)).detach().numpy()    
+        logLik = -val_loss
 
     P = pred.reshape((11, -1))
     for i in range(P.shape[1]):
@@ -120,29 +110,23 @@ def run_tp(X, y):
 
 def run_inter(X, y):
     mod = get_neat_model(
-        dim_features=X.shape[1],
-        net_x_arch_trunk=relu_network((20, 20), dropout=0),
+        dim_features=5,
+        net_x_arch_trunk=relu_network((5, 20), dropout=0),
         net_y_size_trunk=nonneg_tanh_network([20, 20, 10], dropout=0),
         base_distribution=torch.distributions.Normal(0, 1),
-        #base_distribution=tfd.Normal(loc=0, scale=1),
         optimizer=optim.Adam,
-        #optimizer=Adam(),
-        # kwds:
         model_type=ModelType.INTER,
-        top_layer=layer_nonneg_lin(units=1),
+        top_layer=layer_nonneg_lin(1),
     )
     print(mod)
 
     early_stopping = EarlyStopping(patience=250, monitor="val_loss", restore_best_weights=True)
 
-    #callback = EarlyStopping(
-    #    patience=250, monitor="val_logLik", restore_best_weights=True
-    #)
-
     dataset = TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
     train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
@@ -153,7 +137,7 @@ def run_inter(X, y):
         mod.train()
         for X_batch, y_batch in train_loader:
             optimizer.zero_grad()
-            outputs = mod(X_batch)
+            outputs = mod(X_batch, y_batch)
             loss = criterion(outputs, y_batch)
             loss.backward()
             optimizer.step()
@@ -162,17 +146,18 @@ def run_inter(X, y):
         val_loss = 0.0
         with torch.no_grad():
             for X_val, y_val in val_loader:
-                outputs = mod(X_val)
-                loss = criterion(outputs, y_val)
-                val_loss += loss.item()
+                outputs = mod(X_val, y_val)
+                val_loss += criterion(outputs, y_val).item()
         val_loss /= len(val_loader)
 
         early_stopping(mod, val_loss)
         if early_stopping.early_stop:
             print(f"Early stopping at epoch {epoch}")
             break
-
-    pred = mod(torch.tensor(X, dtype=torch.float32)).detach().numpy()
+    
+    mod.eval()
+    with torch.no_grad():
+        pred = mod(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)).detach().numpy()
     logLik = -val_loss
 
     P = pred.reshape((11, -1))
@@ -185,31 +170,24 @@ def run_inter(X, y):
 def run_ls(X, y):
     # Model types comparison
     mod = get_neat_model(
-        dim_features=X.shape[1],
-        net_x_arch_trunk=relu_network((100, 100), dropout=0),
+        dim_features=5,
+        net_x_arch_trunk=relu_network((5, 100), dropout=0),
         net_y_size_trunk=nonneg_tanh_network([50, 50, 10], dropout=0),
         base_distribution=torch.distributions.Normal(0, 1),
-        #base_distribution=tfd.Normal(loc=0, scale=1),
         optimizer=optim.Adam,
-        #optimizer=Adam(),
-        # kwds:
         model_type=ModelType.LS,
-        mu_top_layer=nn.Linear(1, 1),
-        #mu_top_layer=Dense(units=1),
-        sd_top_layer=layer_inverse_exp(units=1),
-        top_layer=layer_nonneg_lin(units=1),
+        mu_top_layer=nn.Linear(100, 1),
+        sd_top_layer=layer_inverse_exp(100),
+        top_layer=layer_nonneg_lin(1),
     )
     
     early_stopping = EarlyStopping(patience=5, monitor="val_loss", restore_best_weights=True)
-
-    #callback = EarlyStopping(
-    #    patience=5, monitor="val_logLik", restore_best_weights=True
-    #)
 
     dataset = TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
     train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
@@ -220,7 +198,7 @@ def run_ls(X, y):
         mod.train()
         for X_batch, y_batch in train_loader:
             optimizer.zero_grad()
-            outputs = mod(X_batch)
+            outputs = mod(X_batch, y_batch)
             loss = criterion(outputs, y_batch)
             loss.backward()
             optimizer.step()
@@ -229,17 +207,17 @@ def run_ls(X, y):
         val_loss = 0.0
         with torch.no_grad():
             for X_val, y_val in val_loader:
-                outputs = mod(X_val)
-                loss = criterion(outputs, y_val)
-                val_loss += loss.item()
+                outputs = mod(X_val, y_val)
+                val_loss += criterion(outputs, y_val).item()
         val_loss /= len(val_loader)
 
         early_stopping(mod, val_loss)
         if early_stopping.early_stop:
             print(f"Early stopping at epoch {epoch}")
             break
-
-    pred = mod(torch.tensor(X, dtype=torch.float32)).detach().numpy()
+    mod.eval()
+    with torch.no_grad():
+        pred = mod(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)).detach().numpy()
     logLik = -val_loss
 
     P = pred.reshape((11, -1))
@@ -251,8 +229,8 @@ def run_ls(X, y):
 
 def get_toy_data():
     # Data imported from R
-    X = np.loadtxt("../tests/toy_data_X.csv", delimiter=",")
-    y = np.loadtxt("../tests/toy_data_y.csv", delimiter=",").reshape(-1, 1)
+    X = np.loadtxt("tests/toy_data_X.csv", delimiter=",")
+    y = np.loadtxt("tests/toy_data_y.csv", delimiter=",").reshape(-1, 1)
     return X, y
 
 if __name__ == "__main__":
