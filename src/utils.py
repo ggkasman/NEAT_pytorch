@@ -72,10 +72,11 @@ def interconnected_network(inpY, inpX, network_default: callable, top_layer: cal
     x = top_layer(x)
     return x
 
-def layer_inverse_exp(units: int, in_features: int) -> nn.Module:
+def layer_inverse_exp(in_features: int, units: int) -> nn.Module:
     return nn.Sequential(
         nn.Linear(in_features, units),
-        nn.Lambda(lambda x: torch.exp(-0.5 * x))
+        nn.ReLU(),
+        nn.Sequential(nn.Linear(units, units), nn.ReLU())
     )
 
 def locscale_network(inpY, inpX, mu_top_layer: callable, sd_top_layer: callable, top_layer: callable) -> torch.Tensor:
@@ -96,7 +97,7 @@ def get_neat_model(dim_features: int, net_y_size_trunk: callable, net_x_arch_tru
 
             # Update these sizes based on your actual network's requirements
             self.inpY_expander = nn.Linear(1, 50)  # Match this to the required input size of net_y_size_trunk
-            self.post_trunk_expander = nn.Linear(10, 100)  # Ensure this matches the final size you need
+            self.post_trunk_expander = nn.Linear(32, 32)  # Ensure this matches the final size you need
 
             self.mu_top_layer = kwds.get('mu_top_layer')
             self.sd_top_layer = kwds.get('sd_top_layer')
@@ -117,6 +118,11 @@ def get_neat_model(dim_features: int, net_y_size_trunk: callable, net_x_arch_tru
             else:
                 raise ValueError("model_type must be one of ModelType")
             return outp
+
+        def predict(self, inpX):
+            # Predict using only X; here dummy Y values are used
+            dummy_y = torch.zeros((inpX.size(0), 1), dtype=inpX.dtype, device=inpX.device)
+            return self.forward(inpX, dummy_y)
 
     model = NEATModelWrapper()
     return model
@@ -171,7 +177,7 @@ if __name__ == "__main__":
         optimizer=optim.Adam,
         model_type=ModelType.LS,
         mu_top_layer=nn.Linear(64, 1),
-        sd_top_layer=layer_inverse_exp(1, in_features=64),
-        top_layer=layer_nonneg_lin(1, in_features=1),
+        sd_top_layer=layer_inverse_exp(in_features=64, units=1),
+        top_layer=layer_nonneg_lin(in_features=1, out_features=1),
     )
     print(neat_model)
