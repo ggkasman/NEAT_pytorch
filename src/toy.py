@@ -1,10 +1,9 @@
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-'''import PyTorch libraries'''
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, TensorDataset
 
 from utils import (
     get_neat_model,
@@ -12,31 +11,9 @@ from utils import (
     ModelType,
     layer_inverse_exp,
     layer_nonneg_lin,
-    relu_network
+    relu_network,
+    fit  # The fit function you've implemented
 )
-
-'''Custom Early Stopping class'''
-class EarlyStopping:
-    def __init__(self, patience=50, monitor="val_loss", restore_best_weights=True):
-        self.patience = patience
-        self.monitor = monitor
-        self.restore_best_weights = restore_best_weights
-        self.best_loss = float("inf")
-        self.early_stop = False
-        self.wait = 0
-        self.best_weights = None
-
-    def __call__(self, mod, val_loss):
-        if val_loss < self.best_loss:
-            self.best_loss = val_loss
-            self.best_weights = mod.state_dict()
-            self.wait = 0
-        else:
-            self.wait += 1
-            if self.wait >= self.patience:
-                self.early_stop = True
-                if self.restore_best_weights:
-                    mod.load_state_dict(self.best_weights)
 
 def run_toy_example():
     X, y = get_toy_data()
@@ -47,191 +24,171 @@ def run_toy_example():
     assert log_ls < 250
     assert log_inter < 250
 
+
 def run_tp(X, y):
-    mod = get_neat_model(
-        dim_features=5,
-        net_x_arch_trunk=relu_network((5, 100), dropout=0),
-        net_y_size_trunk=nonneg_tanh_network([50, 50, 10], dropout=0),
-        base_distribution=torch.distributions.Normal(0, 1),
-        optimizer=optim.Adam,
-        model_type=ModelType.TP,
-        output_dim=1,
-    )
-    print(mod)
+    print("Creating TP model...")
 
-    early_stopping = EarlyStopping(patience=50, monitor="val_loss", restore_best_weights=True)
+    # Define the parameters needed for get_neat_model
+    net_x_arch_trunk = relu_network((100, 100), dropout=0)
+    net_y_size_trunk = nonneg_tanh_network([50, 50, 10], dropout=0)
+    model_type = ModelType.TP
+    optimizer_class = optim.Adam
 
-    dataset = TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
-    train_size = int(0.9 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    # Pass parameters as part of the params dictionary
+    params = {
+        'net_x_arch_trunk': net_x_arch_trunk,
+        'net_y_size_trunk': net_y_size_trunk,
+        'model_type': model_type,
+        'optimizer_class': optimizer_class,
+        'output_dim': 1,
+    }
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    # Create datasets
+    dataset = TensorDataset(torch.tensor(X).float(), torch.tensor(y).float())
+    train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+    val_loader = DataLoader(dataset, batch_size=32, shuffle=False)
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(mod.parameters())
+    print("Starting training for TP model...")
+    # Call the fit function, passing the required parameters
+    history, mod = fit(epochs=500, train_data=train_loader, val_data=val_loader, **params)
+    print("TP model training completed.")
 
-#Training loop
-    for epoch in range(500):
-        mod.train()
-        for X_batch, y_batch in train_loader:
-            optimizer.zero_grad()
-            outputs = mod(X_batch, y_batch)
-            loss = criterion(outputs, y_batch)
-            loss.backward()
-            optimizer.step()
-    
-        mod.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for X_val, y_val in val_loader:
-                outputs = mod(X_val, y_val)
-                val_loss += criterion(outputs, y_val).item()
-        val_loss /= len(val_loader)
+    # Generate predictions and evaluate log-likelihood
+    pred = mod(torch.tensor(X).float(), torch.tensor(y).float()).detach().numpy()
+    logLik = -evaluate(mod, val_loader) / X.shape[0]
 
-        early_stopping(mod, val_loss)
-        if early_stopping.early_stop:
-            print(f"Early stopping at epoch {epoch}")
-            break
-
-#Predictions and plotting
-    mod.eval()
-    with torch.no_grad():
-        pred = mod(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)).detach().numpy()    
-        logLik = -val_loss
-
+    # Plot predictions
+    print("Plotting predictions for TP model...")
     P = pred.reshape((11, -1))
     for i in range(P.shape[1]):
         plt.plot(P[:, i], "-")
-    plt.show()
-
-    return logLik
-
-def run_inter(X, y):
-    mod = get_neat_model(
-        dim_features=5,
-        net_x_arch_trunk=relu_network((5, 20), dropout=0),
-        net_y_size_trunk=nonneg_tanh_network([20, 20, 10], dropout=0),
-        base_distribution=torch.distributions.Normal(0, 1),
-        optimizer=optim.Adam,
-        model_type=ModelType.INTER,
-        top_layer=layer_nonneg_lin(1),
-    )
-    print(mod)
-
-    early_stopping = EarlyStopping(patience=250, monitor="val_loss", restore_best_weights=True)
-
-    dataset = TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
-    train_size = int(0.9 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(mod.parameters())
-
-    for epoch in range(1000):
-        mod.train()
-        for X_batch, y_batch in train_loader:
-            optimizer.zero_grad()
-            outputs = mod(X_batch, y_batch)
-            loss = criterion(outputs, y_batch)
-            loss.backward()
-            optimizer.step()
-
-        mod.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for X_val, y_val in val_loader:
-                outputs = mod(X_val, y_val)
-                val_loss += criterion(outputs, y_val).item()
-        val_loss /= len(val_loader)
-
-        early_stopping(mod, val_loss)
-        if early_stopping.early_stop:
-            print(f"Early stopping at epoch {epoch}")
-            break
     
-    mod.eval()
-    with torch.no_grad():
-        pred = mod(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)).detach().numpy()
-    logLik = -val_loss
-
-    P = pred.reshape((11, -1))
-    for i in range(P.shape[1]):
-        plt.plot(P[:, i], "-")
-    plt.show()
+    plt.show(block=True)  # Ensure the plot displays
 
     return logLik
+
 
 def run_ls(X, y):
-    # Model types comparison
-    mod = get_neat_model(
-        dim_features=5,
-        net_x_arch_trunk=relu_network((5, 100), dropout=0),
-        net_y_size_trunk=nonneg_tanh_network([50, 50, 10], dropout=0),
-        base_distribution=torch.distributions.Normal(0, 1),
-        optimizer=optim.Adam,
-        model_type=ModelType.LS,
-        mu_top_layer=nn.Linear(100, 1),
-        sd_top_layer=layer_inverse_exp(100),
-        top_layer=layer_nonneg_lin(1),
-    )
-    
-    early_stopping = EarlyStopping(patience=5, monitor="val_loss", restore_best_weights=True)
+    print("Creating LS model...")
 
-    dataset = TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
-    train_size = int(0.9 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    # Define the parameters needed for get_neat_model
+    net_x_arch_trunk = relu_network((100, 100), dropout=0)
+    net_y_size_trunk = nonneg_tanh_network([50, 50, 10], dropout=0)
+    model_type = ModelType.LS
+    optimizer_class = optim.Adam
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    # Additional layers specific to LS model
+    mu_top_layer = layer_inverse_exp(out_features=1)
+    sd_top_layer = layer_inverse_exp(out_features=1)
+    top_layer = layer_nonneg_lin(out_features=1)
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(mod.parameters())
+    # Pass parameters as part of the params dictionary
+    params = {
+        'net_x_arch_trunk': net_x_arch_trunk,
+        'net_y_size_trunk': net_y_size_trunk,
+        'model_type': model_type,
+        'optimizer_class': optimizer_class,
+        'mu_top_layer': mu_top_layer,
+        'sd_top_layer': sd_top_layer,
+        'top_layer': top_layer,
+    }
 
-    for epoch in range(25):
-        mod.train()
-        for X_batch, y_batch in train_loader:
-            optimizer.zero_grad()
-            outputs = mod(X_batch, y_batch)
-            loss = criterion(outputs, y_batch)
-            loss.backward()
-            optimizer.step()
+    # Create datasets
+    dataset = TensorDataset(torch.tensor(X).float(), torch.tensor(y).float())
+    train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+    val_loader = DataLoader(dataset, batch_size=32, shuffle=False)
 
-        mod.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for X_val, y_val in val_loader:
-                outputs = mod(X_val, y_val)
-                val_loss += criterion(outputs, y_val).item()
-        val_loss /= len(val_loader)
+    print("Starting training for LS model...")
+    # Call the fit function, passing the required parameters
+    history, mod = fit(epochs=25, train_data=train_loader, val_data=val_loader, **params)
+    print("LS model training completed.")
 
-        early_stopping(mod, val_loss)
-        if early_stopping.early_stop:
-            print(f"Early stopping at epoch {epoch}")
-            break
-    mod.eval()
-    with torch.no_grad():
-        pred = mod(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)).detach().numpy()
-    logLik = -val_loss
+    # Generate predictions and evaluate log-likelihood
+    pred = mod(torch.tensor(X).float(), torch.tensor(y).float()).detach().numpy()
+    logLik = -evaluate(mod, val_loader) / X.shape[0]
 
+    # Plot predictions
+    print("Plotting predictions for LS model...")
     P = pred.reshape((11, -1))
     for i in range(P.shape[1]):
         plt.plot(P[:, i], "-")
-    plt.show()
+    
+    plt.show(block=True)  # Ensure the plot displays
 
     return logLik
 
+
+def run_inter(X, y):
+    print("Creating INTER model...")
+
+    # Define the parameters needed for get_neat_model
+    net_x_arch_trunk = relu_network((20, 20), dropout=0)
+    net_y_size_trunk = nonneg_tanh_network([20, 20, 10], dropout=0)
+    model_type = ModelType.INTER
+    optimizer_class = optim.Adam
+    top_layer = layer_nonneg_lin(out_features=1)
+
+    # Pass parameters as part of the params dictionary
+    params = {
+        'net_x_arch_trunk': net_x_arch_trunk,
+        'net_y_size_trunk': net_y_size_trunk,
+        'model_type': model_type,
+        'optimizer_class': optimizer_class,
+        'top_layer': top_layer,
+    }
+
+    # Create datasets
+    dataset = TensorDataset(torch.tensor(X).float(), torch.tensor(y).float())
+    train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+    val_loader = DataLoader(dataset, batch_size=32, shuffle=False)
+
+    print("Starting training for INTER model...")
+    # Call the fit function, passing the required parameters
+    history, mod = fit(epochs=1000, train_data=train_loader, val_data=val_loader, **params)
+    print("INTER model training completed.")
+
+    # Generate predictions and evaluate log-likelihood
+    pred = mod(torch.tensor(X).float(), torch.tensor(y).float()).detach().numpy()
+    logLik = -evaluate(mod, val_loader) / X.shape[0]
+
+    # Plot predictions
+    print("Plotting predictions for INTER model...")
+    P = pred.reshape((11, -1))
+    for i in range(P.shape[1]):
+        plt.plot(P[:, i], "-")
+    
+    plt.show(block=True)  # Ensure the plot displays
+
+    return logLik
+
+
 def get_toy_data():
-    # Data imported from R
-    X = np.loadtxt("tests/toy_data_X.csv", delimiter=",")
-    y = np.loadtxt("tests/toy_data_y.csv", delimiter=",").reshape(-1, 1)
+    # Data imported from CSV files (or other source)
+    X = np.loadtxt("/Users/gamzekasman/Documents/NEAT_pytorch/tests/toy_data_X.csv", delimiter=",")
+    y = np.loadtxt("/Users/gamzekasman/Documents/NEAT_pytorch/tests/toy_data_y.csv", delimiter=",").reshape(-1, 1)
     return X, y
+
+
+def evaluate(model, val_loader):
+    """
+    Evaluate the model on validation data.
+    
+    Args:
+        model (NEATModel): The model to evaluate.
+        val_loader (DataLoader): DataLoader for validation data.
+        
+    Returns:
+        float: The average log-likelihood on the validation set.
+    """
+    running_logLik = 0.0
+    for x_val_batch, y_val_batch in val_loader:
+        y_pred = model(x_val_batch, y_val_batch)
+        logLik = model.loss_fn(y_val_batch, y_pred)
+        running_logLik += logLik.item()
+
+    avg_logLik = running_logLik / len(val_loader)
+    return avg_logLik
+
 
 if __name__ == "__main__":
     run_toy_example()
