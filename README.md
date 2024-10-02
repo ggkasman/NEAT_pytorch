@@ -6,7 +6,7 @@ This project is part of the **Applied Deep Learning** course at Ludwig Maximilia
 
 ## Project Overview
 
-This repository contains the Python implementation of **NEAT** (Neural Enhanced Additive Transformation), including toy examples and a hyperparameter search implementation. The purpose of this project is to replicate and enhance the models described in the paper, allowing for flexible distributional regression.
+This repository contains the Python implementation of **NEAT**, including toy examples and a hyperparameter search implementation. The purpose of this project is to replicate and enhance the models described in the paper, allowing for flexible distributional regression.
 
 The folder includes:
 - **Toy Examples**: Simple examples to demonstrate the functionality of the models.
