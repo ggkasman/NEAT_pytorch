@@ -12,7 +12,7 @@ from utils import (
     layer_inverse_exp,
     layer_nonneg_lin,
     relu_network,
-    fit  # The fit function you've implemented
+    fit
 )
 
 def run_toy_example():
