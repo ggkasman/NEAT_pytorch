@@ -12,7 +12,7 @@ from utils import (
     feature_specific_network,
     layer_nonneg_lin,
     layer_inverse_exp,
-    fit  # The fit function you implemented
+    fit
 )
 
 # Data simulation
