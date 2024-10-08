@@ -20,7 +20,7 @@ n = 10000
 p = 1
 y = np.random.chisquare(df=4, size=n).reshape(-1, 1)
 X = np.random.normal(size=(n, p))
-
+y= torch.log1p(torch.tensor(y, dtype=torch.float))
 # Create datasets
 dataset = TensorDataset(torch.tensor(X).float(), torch.tensor(y).float())
 train_loader = DataLoader(dataset, batch_size=400, shuffle=True)
@@ -32,6 +32,7 @@ model = ModelType.LS
 # Set up model-specific parameters and network architecture
 if model == ModelType.LS:
     net_x_arch_trunk = feature_specific_network(
+        num_features = p,
         size=(64, 64, 32),
         default_layer=lambda in_features, out_features, **kwargs: torch.nn.Sequential(
             torch.nn.Linear(in_features, out_features, bias=kwargs.get('bias', True)),
@@ -77,6 +78,7 @@ elif model == ModelType.INTER:
 else:
     raise NotImplementedError
 
+
 # Train the model
 print(f"Creating model of type {model}...")
 history, neat_model = fit(epochs=500, train_data=train_loader, val_data=val_loader, **params)
@@ -84,7 +86,7 @@ print(f"{model} model training completed.")
 
 # Generate predictions
 pred_neat = neat_model(torch.tensor(X).float(), torch.tensor(y).float()).detach().numpy()
-
+neat_model.summary()
 # Plot the results
 plt.scatter(pred_neat, y)
 plt.xlabel("pred_neat")

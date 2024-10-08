@@ -142,7 +142,7 @@ class NEATModel(nn.Module):
         trainable_params = [param for param in self.parameters() if param.requires_grad]
 
         # Initialize the optimizer
-        self.optimizer = optimizer_class(trainable_params, lr=learning_rate)
+        self.optimizer = optimizer_class(trainable_params, lr=learning_rate,weight_decay = 0.01)
 
     def loss_fn(self, y_true, y_pred):
         """
@@ -159,17 +159,35 @@ class NEATModel(nn.Module):
         return -torch.sum(base_distribution.log_prob(y_pred))
 
     def summary(self):
+        print("===== Model Summary =====")
         print(f"Model Type: {self.model_type}")
-        print(f"Net X Arch Trunk: {self.net_x_arch_trunk}")
-        print(f"Net Y Size Trunk: {self.net_y_size_trunk}")
+
+        print("\n=== Architecture Details ===")
+        print(f"Net X Arch Trunk: \n{self.net_x_arch_trunk}")
+        print(f"Net Y Size Trunk: \n{self.net_y_size_trunk}")
+
+        # Check for optional layers if present
+        if hasattr(self, 'mu_top_layer'):
+            print(f"mu_top_layer: \n{self.mu_top_layer}")
+        if hasattr(self, 'sd_top_layer'):
+            print(f"sd_top_layer: \n{self.sd_top_layer}")
+        if hasattr(self, 'top_layer'):
+            print(f"top_layer: \n{self.top_layer}")
+
+        # Optimizer details if available
+        print("\n=== Optimizer ===")
         if hasattr(self, 'optimizer'):
-            print(f"Optimizer: {self.optimizer}")
+            print(self.optimizer)
         else:
             print("Optimizer not initialized yet.")
-        print(f"mu_top_layer: {self.mu_top_layer}, sd_top_layer: {self.sd_top_layer}, top_layer: {self.top_layer}")
-        print(f"Trained parameters: {list(self.parameters())}")
-        print(f"Trainable parameters: {list(self.parameters())}")
-        print(f"Non-trainable parameters: {list(self.parameters())}")
-        print(f"Total parameters: {sum(p.numel() for p in self.parameters())}")
-        print(f"Total trainable parameters: {sum(p.numel() for p in self.parameters() if p.requires_grad)}")
-        print(f"Total non-trainable parameters: {sum(p.numel() for p in self.parameters() if not p.requires_grad)}")
+
+        # Parameter details
+        print("\n=== Parameters ===")
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        non_trainable_params = total_params - trainable_params
+
+        print(f"Total parameters: {total_params}")
+        print(f"Trainable parameters: {trainable_params}")
+        print(f"Non-trainable parameters: {non_trainable_params}")
+        print("\n=========================")

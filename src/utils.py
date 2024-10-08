@@ -97,13 +97,13 @@ def relu_network(size: Iterable[int], dropout: float) -> nn.Sequential:
     return mlp_with_default_layer(
         size,
         default_layer=lambda in_features, out_features: nn.Sequential(
-            nn.Linear(in_features, out_features),
+            nn.Linear(in_features, out_features,bias=True),
             nn.ReLU()
         ),
         dropout=dropout
     )
 
-def feature_specific_network(size: Iterable[int], default_layer: Callable, dropout: float) -> nn.Module:
+def feature_specific_network( num_features: int ,size: Iterable[int], default_layer: Callable, dropout: float) -> nn.Module:
     """
     Creates a feature-specific network where each feature is processed by a separate MLP,
     and the outputs are concatenated.
@@ -119,17 +119,21 @@ def feature_specific_network(size: Iterable[int], default_layer: Callable, dropo
     class FeatureSpecificNetwork(nn.Module):
         def __init__(self):
             super(FeatureSpecificNetwork, self).__init__()
-            num_features = size[0]
+            print(f'NUM FEATURES : {num_features}')
             self.feature_nets = nn.ModuleList([
-                mlp_with_default_layer([1] + list(size[1:]), default_layer, dropout)
+                mlp_with_default_layer([1] + list(size), default_layer, dropout)
                 for _ in range(num_features)
             ])
 
         def forward(self, x):
+            assert x.shape[1] == len(self.feature_nets), f"Expected {len(self.feature_nets)} features, but got {x.shape[1]} features."
             split_features = torch.split(x, 1, dim=1)
-            processed_features = [
-                net(feature) for net, feature in zip(self.feature_nets, split_features)
-            ]
+            processed_features = []
+            for i, feature in enumerate(split_features):
+                # Process each feature using its corresponding MLP
+                processed_feature = self.feature_nets[i](feature)
+                processed_features.append(processed_feature)
+            #net(feature) for net, feature in zip(self.feature_nets, split_features)
             concatenated = torch.cat(processed_features, dim=1)
             return concatenated
 
@@ -337,7 +341,7 @@ def fit(epochs, train_data, val_data, **params):
 
     optimizer_class = params.get('optimizer_class', torch.optim.Adam)
     learning_rate = params.get('learning_rate', 1e-3)
-
+    weight_decay = params.get('weight_decay', 1e-5)
     neat_model.set_optimizer(optimizer_class, learning_rate)
 
     for epoch in range(epochs):
@@ -387,7 +391,8 @@ class DynamicLinear(nn.Module):
     def forward(self, x):
         if self.linear is None:
             in_features = x.size(1)
-            self.linear = nn.Linear(in_features, self.out_features)
+            self.linear = nn.Linear(in_features, self.out_features,bias=True)
+            nn.init.xavier_uniform_(self.linear.weight)
         output = self.linear(x)
         return output
 
